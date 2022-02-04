@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-targets
+  labels:
+    app.kubernetes.io/name: gs-prometheus
+    app.kubernetes.io/component: prometheus
+data:
+  targets.yaml: |-
+    - targets:
+      - cert-manager.cert-manager:9402
+      labels:
+        app: gs-prometheus-operator
+        job: gs-prometheus
+

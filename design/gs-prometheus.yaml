@@ -1,0 +1,33 @@
+apiVersion: monitoring.giantswarm.io/v1alpha1
+kind: Prometheus
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  image: 
+    repository: prometheus/prometheus
+    version: v2.24.1
+  replicas: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 2Gi
+  storage:
+    volumeClaimTemplate:
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Gi
+        storageClassName: standard
+  scrapeTargets:
+  - targets:
+    - gs-prometheus-operator:8080
+    labels:
+      app: gs-prometheus-operator
+      job: gs-prometheus
+

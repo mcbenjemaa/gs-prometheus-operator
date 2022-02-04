@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gs-prometheus
+  labels: &Labels
+    app.kubernetes.io/name: gs-prometheus
+    app.kubernetes.io/component: prometheus
+spec:
+  serviceName: "gs-prometheus"
+  replicas: 1
+  podManagementPolicy: "Parallel"
+  updateStrategy:
+    type: "RollingUpdate"
+  selector:
+    matchLabels: *Labels
+  template:
+    metadata:
+      labels: *Labels
+    spec:
+      #serviceAccountName: gs-prometheus
+      containers:
+        - name: configmap-reload-targets
+          image: "jimmidyson/configmap-reload:v0.6.1"
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - --volume-dir=/etc/targets
+            - --webhook-url=http://127.0.0.1:9090/-/reload
+            -  -web.listen-address=:9534
+          volumeMounts:
+          - name: targets-volume
+            mountPath: /etc/targets
+            readOnly: true
+        - name: configmap-reload-config
+          image: "jimmidyson/configmap-reload:v0.6.1"
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - --volume-dir=/etc/config
+            - --webhook-url=http://127.0.0.1:9090/-/reload
+          volumeMounts:
+          - name: config-volume
+            mountPath: /etc/config/
+            readOnly: true    
+        - name: prometheus
+          image: prom/prometheus:v2.24.1
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - --config.file=/etc/config/prometheus.yml
+            - --storage.tsdb.path=/data
+            - --storage.tsdb.retention=24h
+            - --web.enable-lifecycle
+          ports:
+            - containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 30
+            timeoutSeconds: 30
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            timeoutSeconds: 30
+          # based on 10 running nodes with 30 pods each
+          resources:
+            requests:
+              cpu: 200m
+              memory: 1000Mi
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config
+            - name: targets-volume
+              mountPath: /etc/targets
+            - name: gs-prometheus-data
+              mountPath: /data
+              subPath: ""
+      terminationGracePeriodSeconds: 300
+      volumes:
+        - name: config-volume
+          configMap:
+            name: prometheus-config
+        - name: targets-volume
+          configMap:
+            name: prometheus-targets
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                - gs-prometheus
+            topologyKey: "kubernetes.io/hostname"
+  volumeClaimTemplates:
+  - metadata:
+      name: gs-prometheus-data
+      labels: *Labels
+    spec:
+      storageClassName: standard
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: "16Gi"
