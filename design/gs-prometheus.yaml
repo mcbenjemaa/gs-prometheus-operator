@@ -15,19 +15,17 @@ spec:
     requests:
       cpu: 100m
       memory: 2Gi
-  storage:
-    volumeClaimTemplate:
-      spec:
-        accessModes:
-        - ReadWriteOnce
-        resources:
-          requests:
-            storage: 100Gi
-        storageClassName: standard
+  volumeClaimTemplate:
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 100Gi
+      storageClassName: standard
   scrapeTargets:
   - targets:
     - gs-prometheus-operator:8080
     labels:
       app: gs-prometheus-operator
       job: gs-prometheus
-
