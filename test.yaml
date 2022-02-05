@@ -1,7 +1,8 @@
 apiVersion: monitoring.giantswarm.io/v1alpha1
 kind: Prometheus
 metadata:
-  name: prometheus-sample
+  name: prometheus
+  namespace: monitoring
 spec:
   image: 
     repository: prom/prometheus
@@ -22,7 +23,7 @@ spec:
         requests:
           storage: 100Gi
       storageClassName: standard
-  targets:
+  scrapeTargets:
   - targets:
     - gs-prometheus-operator:8080
     labels:

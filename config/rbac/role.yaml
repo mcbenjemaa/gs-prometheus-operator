@@ -1,0 +1,33 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - monitoring.giantswarm.io
+  resources:
+  - prometheuses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - monitoring.giantswarm.io
+  resources:
+  - prometheuses/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - monitoring.giantswarm.io
+  resources:
+  - prometheuses/status
+  verbs:
+  - get
+  - patch
+  - update

@@ -17,26 +17,53 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // PrometheusSpec defines the desired state of Prometheus
 type PrometheusSpec struct {
 
-	// ImageSpec represent the spec of Prometheus image
-	ImageSpec *string `json:"image,omitempty"`
+	// Image represent the spec of Prometheus image/version
+	Image ImageSpec `json:"image"`
+
+	// Replica number of replicas to run
+	Replicas int32 `json:"replicas"`
+
+	// Compute Resources for Prometheus.
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// VolumeClaimTemplate the claim that Prometheus reference.
+	VolumeClaimTemplate corev1.PersistentVolumeClaim `json:"volumeClaimTemplate"`
+
+	// Targets Prometheus scraping targets
+	// +optional
+	Targets []PrometheusTarget `json:"targets,omitempty"`
 }
 
 type ImageSpec struct {
-	Repository string `json:"repository,omitempty"`
 
-	Version string `json:"version,omitempty"`
+	// +optional
+	// +kubebuilder:default=prom/prometheus
+	Repository *string `json:"repository,omitempty"`
+
+	// Version of Prometheus
+	Version string `json:"version"`
+}
+
+// Prometheus defines the spec of Prometheus targets
+type PrometheusTarget struct {
+	Targets []string `json:"targets,omitempty"`
+
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // PrometheusStatus defines the observed state of Prometheus
 type PrometheusStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+
+	// ReadyReplicas number of ready replicas
+	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
 }
 
 //+kubebuilder:object:root=true
