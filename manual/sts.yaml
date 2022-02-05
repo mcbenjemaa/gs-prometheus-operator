@@ -19,27 +19,20 @@ spec:
     spec:
       #serviceAccountName: gs-prometheus
       containers:
-        - name: configmap-reload-targets
+        - name: configmap-reload
           image: "jimmidyson/configmap-reload:v0.6.1"
           imagePullPolicy: "IfNotPresent"
           args:
             - --volume-dir=/etc/targets
+            - --volume-dir=/etc/config
             - --webhook-url=http://127.0.0.1:9090/-/reload
-            -  -web.listen-address=:9534
           volumeMounts:
           - name: targets-volume
             mountPath: /etc/targets
             readOnly: true
-        - name: configmap-reload-config
-          image: "jimmidyson/configmap-reload:v0.6.1"
-          imagePullPolicy: "IfNotPresent"
-          args:
-            - --volume-dir=/etc/config
-            - --webhook-url=http://127.0.0.1:9090/-/reload
-          volumeMounts:
           - name: config-volume
             mountPath: /etc/config/
-            readOnly: true    
+            readOnly: true
         - name: prometheus
           image: prom/prometheus:v2.24.1
           imagePullPolicy: "IfNotPresent"
