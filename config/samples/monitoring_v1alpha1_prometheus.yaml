@@ -1,0 +1,6 @@
+apiVersion: monitoring.giantswarm.io/v1alpha1
+kind: Prometheus
+metadata:
+  name: prometheus-sample
+spec:
+  # TODO(user): Add fields here
