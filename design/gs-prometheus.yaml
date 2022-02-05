@@ -23,7 +23,7 @@ spec:
         requests:
           storage: 100Gi
       storageClassName: standard
-  scrapeTargets:
+  targets:
   - targets:
     - gs-prometheus-operator:8080
     labels:
