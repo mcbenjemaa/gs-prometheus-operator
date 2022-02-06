@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/go-cmp/cmp"
 	appsv1 "k8s.io/api/apps/v1"
@@ -69,7 +70,7 @@ type PrometheusReconciler struct {
 func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := crlog.FromContext(ctx)
 
-	// Retrieve Dummy object
+	// Retrieve Prometheus object
 	var prometheus monitoringv1alpha1.Prometheus
 	if err := r.Get(ctx, req.NamespacedName, &prometheus); err != nil {
 		log.Error(err, "unable to fetch Prometheus")
@@ -80,14 +81,34 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	err := r.ensurePrometheus(ctx, &prometheus)
 	if err != nil {
 		log.Error(err, "unable to ensure Prometheus %v")
-		r.recorder.Eventf(&prometheus, core.EventTypeWarning, "FailedInitializePrometheus", "error to initialize prometheus, %v", err)
+		r.recorder.Eventf(&prometheus, core.EventTypeWarning, "FailedInitializePrometheus", "error initializing prometheus, %v", err)
 	}
 
 	return ctrl.Result{}, nil
 }
 
-// ensurePrometheus ensures Prometheus(Statefulset,Service,ConfigMap) exists
+// ensurePrometheus ensures Prometheus(Statefulset, Service, ConfigMap) exists
 func (r *PrometheusReconciler) ensurePrometheus(ctx context.Context, p *monitoringv1alpha1.Prometheus) error {
+
+	err := r.reconcileStatefulSet(ctx, p)
+	if err != nil {
+		return fmt.Errorf("unable to reconcile StatefulSet: %v", err)
+	}
+
+	err = r.reconcileService(ctx, p)
+	if err != nil {
+		return fmt.Errorf("unable to reconcile Service: %v", err)
+	}
+
+	err = r.reconcileConfigMap(ctx, p)
+	if err != nil {
+		return fmt.Errorf("unable to reconcile ConfigMap: %v", err)
+	}
+
+	return nil
+}
+
+func (r *PrometheusReconciler) reconcileStatefulSet(ctx context.Context, p *monitoringv1alpha1.Prometheus) error {
 	log := crlog.FromContext(ctx)
 
 	// Retrieve StatefulSet
@@ -106,24 +127,131 @@ func (r *PrometheusReconciler) ensurePrometheus(ctx context.Context, p *monitori
 			} else if err == nil {
 				r.recorder.Eventf(p, core.EventTypeNormal, "PrometheusStatefulSetCreated", "StatefulSet %v is created", p.Name)
 			}
-		} else {
-			// Update Prometheus Status
-			if p.Status.ReadyReplicas != sts.Status.ReadyReplicas {
-				p.Status.ReadyReplicas = sts.Status.ReadyReplicas
-				err := r.Status().Update(ctx, p)
-				if err != nil {
-					return err
-				}
-			}
-			// Check Diff & Update StatefulSet
-			if !cmp.Equal(sts.Spec, desiredSts.Spec) {
-				return r.Status().Update(ctx, &desiredSts)
-			}
+		}
+		return err
+	} else {
 
+		desiredSts := desiredStatefulSet(p)
+		// Update Prometheus Status
+		// TODO: readyReplicas
+		if p.Status.ReadyReplicas != sts.Status.ReadyReplicas {
+			p.Status.ReadyReplicas = sts.Status.ReadyReplicas
+			err := r.Status().Update(ctx, p)
+			if err != nil {
+				return err
+			}
+		}
+		// Check Diff & Update StatefulSet
+		if !cmp.Equal(sts.Spec, desiredSts.Spec) {
+			log.Info("Update Prometheus StatefulSet")
+
+			return r.Update(ctx, &desiredSts)
 		}
 
 	}
+	return nil
+}
 
+func (r *PrometheusReconciler) reconcileService(ctx context.Context, p *monitoringv1alpha1.Prometheus) error {
+
+	// Retrieve Service
+	var svc core.Service
+	nn := ctrltypes.NamespacedName{Namespace: p.ObjectMeta.Namespace, Name: p.ObjectMeta.Name}
+	if err := r.Get(ctx, nn, &svc); err != nil {
+		desiredSvc := desiredService(p)
+		if apierrors.IsNotFound(err) {
+			// Create StatefulSet
+			if err := ctrl.SetControllerReference(p, &desiredSvc, r.Scheme); err != nil {
+				return err
+			}
+			if err := r.Create(ctx, &desiredSvc); err != nil {
+				return err
+			} else if err == nil {
+				r.recorder.Eventf(p, core.EventTypeNormal, "PrometheusServiceCreated", "Service %v is created", p.Name)
+			}
+		}
+		return err
+	} else {
+		desiredSvc := desiredService(p)
+		// Check Diff & Update Service
+		if !cmp.Equal(svc.Spec, desiredSvc.Spec) {
+			//TODO: Ignore:::
+			//return r.Update(ctx, &desiredSvc)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (r *PrometheusReconciler) reconcileConfigMap(ctx context.Context, p *monitoringv1alpha1.Prometheus) error {
+	log := crlog.FromContext(ctx)
+
+	// reconcile Prometheus ConfigMap
+	var cm core.ConfigMap
+	nn := ctrltypes.NamespacedName{Namespace: p.ObjectMeta.Namespace, Name: p.ObjectMeta.Name + prometheusConfigMapSuffix}
+	if err := r.Get(ctx, nn, &cm); err != nil {
+		log.Info("unable to get ConfigMap")
+		if apierrors.IsNotFound(err) {
+			desiredCm, err := desiredPrometheusConfigMap(p)
+			if err != nil {
+				return err
+			}
+			// Create ConfigMap
+			if err := ctrl.SetControllerReference(p, &desiredCm, r.Scheme); err != nil {
+				return err
+			}
+			if err := r.Create(ctx, &desiredCm); err != nil {
+				return err
+			} else if err == nil {
+				r.recorder.Eventf(p, core.EventTypeNormal, "PrometheusConfigCreated", "ConfigMap %v is created", p.Name)
+			}
+		} else {
+			return err
+		}
+	} else {
+		desiredCm, err := desiredPrometheusConfigMap(p)
+		if err != nil {
+			return err
+		}
+		// Check Diff & Update
+		if !cmp.Equal(cm.Data, desiredCm.Data) {
+			return r.Update(ctx, &desiredCm)
+		}
+	}
+
+	// reconcile targets ConfigMap
+	tcmName := p.ObjectMeta.Name + prometheusConfigMapTargetsSuffix
+	var tcm core.ConfigMap
+	nncm := ctrltypes.NamespacedName{Namespace: p.ObjectMeta.Namespace, Name: tcmName}
+	if err := r.Get(ctx, nncm, &tcm); err != nil {
+		log.Info("unable to get Targets ConfigMap")
+		if apierrors.IsNotFound(err) {
+			desiredCm, err := desiredTargetsConfigMap(p)
+			if err != nil {
+				return err
+			}
+			// Create ConfigMap
+			if err := ctrl.SetControllerReference(p, &desiredCm, r.Scheme); err != nil {
+				return err
+			}
+			if err := r.Create(ctx, &desiredCm); err != nil {
+				return err
+			} else if err == nil {
+				r.recorder.Eventf(p, core.EventTypeNormal, "TargetsConfigCreated", "ConfigMap %v is created", tcmName)
+			}
+		}
+		return err
+	} else {
+		desiredCm, err := desiredTargetsConfigMap(p)
+		if err != nil {
+			return err
+		}
+		// Check Diff & Update
+		if !cmp.Equal(tcm.Data, desiredCm.Data) {
+			log.Info("Update targets ConfigMap")
+			return r.Update(ctx, &desiredCm)
+		}
+	}
 	return nil
 }
 

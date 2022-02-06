@@ -35,6 +35,7 @@ type PrometheusSpec struct {
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 
 	// VolumeClaimTemplate the claim that Prometheus reference.
+	// +immutable
 	VolumeClaimTemplate corev1.PersistentVolumeClaim `json:"volumeClaimTemplate"`
 
 	// Targets Prometheus scraping targets
@@ -68,6 +69,8 @@ type PrometheusStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:printcolumn:name="Ready",type="integer",JSONPath=".status.readyReplicas",description="Total number of ready instances."
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of MachineSet"
 
 // Prometheus is the Schema for the prometheuses API
 type Prometheus struct {

@@ -5,22 +5,22 @@ metadata:
 spec:
   image: 
     repository: prom/prometheus
-    version: v2.24.1
+    version: v2.30.1
   replicas: 1
   resources:
     limits:
       cpu: 500m
-      memory: 4Gi
+      memory: 2Gi
     requests:
       cpu: 100m
-      memory: 2Gi
+      memory: 1Gi
   volumeClaimTemplate:
     spec:
       accessModes:
       - ReadWriteOnce
       resources:
         requests:
-          storage: 100Gi
+          storage: 10Gi
       storageClassName: standard
   targets:
   - targets:
@@ -28,3 +28,8 @@ spec:
     labels:
       app: gs-prometheus-operator
       job: gs-prometheus
+  # - targets:
+  #   - cert-manager.cert-manager:9402
+  #   labels:
+  #     app: cert-manager
+  #     job: cert-manager

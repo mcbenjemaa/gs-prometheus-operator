@@ -1,11 +1,27 @@
 package controllers
 
 import (
+	"fmt"
+
 	monitoringv1alpha1 "github.com/mcbenjemaa/gs-prometheus-operator/api/v1alpha1"
+	"gopkg.in/yaml.v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+)
+
+const (
+	prometheusPort                   = 9090
+	prometheusConfigMapTargetsSuffix = "-targets"
+	prometheusConfigMapSuffix        = "-config"
+	prometheusConfig                 = `
+		scrape_configs:
+		 - job_name: 'gs'
+		   file_sd_configs:
+			 - files:
+			    - /etc/targets/targets.yaml
+	`
 )
 
 func labels() map[string]string {
@@ -47,13 +63,13 @@ func prometheusContainer(p *monitoringv1alpha1.Prometheus) corev1.Container {
 			"--storage.tsdb.path=/data",
 			"--web.enable-lifecycle",
 		},
-		Ports:     []corev1.ContainerPort{corev1.ContainerPort{ContainerPort: 9090}},
+		Ports:     []corev1.ContainerPort{{ContainerPort: 9090}},
 		Resources: *p.Spec.Resources.DeepCopy(),
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path: "/-/ready",
-					Port: intstr.FromInt(9090),
+					Port: intstr.FromInt(prometheusPort),
 				},
 			},
 			InitialDelaySeconds: 30,
@@ -63,7 +79,7 @@ func prometheusContainer(p *monitoringv1alpha1.Prometheus) corev1.Container {
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path: "/-/healthy",
-					Port: intstr.FromInt(9090),
+					Port: intstr.FromInt(prometheusPort),
 				},
 			},
 
@@ -80,7 +96,7 @@ func prometheusContainer(p *monitoringv1alpha1.Prometheus) corev1.Container {
 				MountPath: "/etc/config/",
 			},
 			{
-				Name:      "gs-prometheus-data",
+				Name:      p.Name,
 				MountPath: "/data",
 				SubPath:   "",
 			},
@@ -90,22 +106,22 @@ func prometheusContainer(p *monitoringv1alpha1.Prometheus) corev1.Container {
 
 func volumes(n string) []corev1.Volume {
 	return []corev1.Volume{
-		corev1.Volume{
+		{
 			Name: "config-volume",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: n + "-config",
+						Name: n + prometheusConfigMapSuffix,
 					},
 				},
 			},
 		},
-		corev1.Volume{
+		{
 			Name: "targets-volume",
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: n + "-targets",
+						Name: n + prometheusConfigMapTargetsSuffix,
 					},
 				},
 			},
@@ -133,6 +149,16 @@ func volumes(n string) []corev1.Volume {
 
 // }
 
+func volumeClaimTemplate(p *monitoringv1alpha1.Prometheus) corev1.PersistentVolumeClaim {
+	if p.Spec.VolumeClaimTemplate.ObjectMeta.Name == "" {
+		p.Spec.VolumeClaimTemplate.ObjectMeta = metav1.ObjectMeta{
+			Name:   p.Name,
+			Labels: labels(),
+		}
+	}
+	return p.Spec.VolumeClaimTemplate
+}
+
 func desiredStatefulSet(p *monitoringv1alpha1.Prometheus) appsv1.StatefulSet {
 	return appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels()},
@@ -143,7 +169,7 @@ func desiredStatefulSet(p *monitoringv1alpha1.Prometheus) appsv1.StatefulSet {
 			Selector: &metav1.LabelSelector{
 				MatchLabels: labels(),
 			},
-			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{p.Spec.VolumeClaimTemplate},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{volumeClaimTemplate(p)},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels(),
@@ -159,4 +185,69 @@ func desiredStatefulSet(p *monitoringv1alpha1.Prometheus) appsv1.StatefulSet {
 			},
 		},
 	}
+}
+
+func desiredService(p *monitoringv1alpha1.Prometheus) corev1.Service {
+	return corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels()},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				corev1.ServicePort{
+					Name:       "http",
+					Port:       prometheusPort,
+					Protocol:   "TCP",
+					TargetPort: intstr.FromInt(prometheusPort),
+				},
+			},
+			SessionAffinity: corev1.ServiceAffinityClientIP,
+			Selector:        labels(),
+		},
+	}
+}
+
+func desiredPrometheusConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.ConfigMap, error) {
+
+	cfg := PrometheusConfigFile{
+		ScrapeConfigs: []PrometheusScrapeConfig{
+			PrometheusScrapeConfig{
+				JobName: "gs",
+				FileSdConfigs: []PrometheusFileSdConfig{
+					PrometheusFileSdConfig{
+						Files: []string{
+							"/etc/targets/targets.yaml",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	yamlData, err := yaml.Marshal(&cfg)
+
+	if err != nil {
+		return corev1.ConfigMap{}, fmt.Errorf("Error while Marshaling. %v", err)
+	}
+
+	return corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name + prometheusConfigMapSuffix, Namespace: p.Namespace, Labels: labels()},
+		Data: map[string]string{
+			"prometheus.yml": string(yamlData),
+		},
+	}, nil
+}
+
+func desiredTargetsConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.ConfigMap, error) {
+
+	jsonStr, err := yaml.Marshal(p.Spec.Targets)
+	if err != nil {
+		return corev1.ConfigMap{}, fmt.Errorf("unable to Marshal 'targets', %v", err)
+	}
+	data := map[string]string{
+		"targets.yaml": string(jsonStr),
+	}
+
+	return corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name + prometheusConfigMapTargetsSuffix, Namespace: p.Namespace, Labels: labels()},
+		Data:       data,
+	}, nil
 }

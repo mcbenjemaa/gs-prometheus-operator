@@ -15,7 +15,16 @@ spec:
     singular: prometheus
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Total number of ready instances.
+      jsonPath: .status.readyReplicas
+      name: Ready
+      type: integer
+    - description: Time duration since creation of MachineSet
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Prometheus is the Schema for the prometheuses API
