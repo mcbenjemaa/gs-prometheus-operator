@@ -44,6 +44,38 @@ spec:
           spec:
             description: PrometheusSpec defines the desired state of Prometheus
             properties:
+              additionalScrapeConfigs:
+                description: AdditionalScrapeConfigs Prometheus scraping configs
+                items:
+                  description: ScrapeConfig
+                  properties:
+                    bearerTokenFile:
+                      type: string
+                    jobName:
+                      type: string
+                    scheme:
+                      type: string
+                    staticConfigs:
+                      items:
+                        properties:
+                          targets:
+                            items:
+                              type: string
+                            type: array
+                        required:
+                        - targets
+                        type: object
+                      type: array
+                    tlsConfig:
+                      properties:
+                        insecureSkipVerify:
+                          default: true
+                          type: boolean
+                      required:
+                      - insecureSkipVerify
+                      type: object
+                  type: object
+                type: array
               image:
                 description: Image represent the spec of Prometheus image/version
                 properties:

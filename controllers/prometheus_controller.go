@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	appsv1 "k8s.io/api/apps/v1"
 	core "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrltypes "k8s.io/apimachinery/pkg/types"
@@ -46,17 +47,20 @@ type PrometheusReconciler struct {
 //+kubebuilder:rbac:groups=monitoring.giantswarm.io,resources=prometheuses/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=monitoring.giantswarm.io,resources=prometheuses/finalizers,verbs=update
 
-//+kubebuilder:rbac:groups=apps,resources=StatefulSets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=apps,resources=StatefulSets/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=apps,resources=StatefulSet/finalizers,verbs=update
+//+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=apps,resources=statefulsets/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=apps,resources=statefulsets/finalizers,verbs=update
 
-//+kubebuilder:rbac:groups=,resources=services,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=,resources=services/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=,resources=services/finalizers,verbs=update
+//+kubebuilder:rbac:groups=core,resources=services;configmaps;serviceaccounts;events,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=services/status;configmaps/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=core,resources=configmaps/finalizers;services/finalizers;serviceaccounts/finalizers,verbs=update
 
-//+kubebuilder:rbac:groups=,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=,resources=configmaps/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=,resources=configmaps/finalizers,verbs=update
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles/status;clusterrolebindings/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
+
+//+kubebuilder:rbac:groups=core,resources=endpoints;nodes;nodes/metrics;pods,verbs=get;list;watch
+//+kubebuilder:rbac:urls=/metrics;/metrics/cadvisor,verbs=get
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -81,16 +85,21 @@ func (r *PrometheusReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	err := r.ensurePrometheus(ctx, &prometheus)
 	if err != nil {
 		log.Error(err, "unable to ensure Prometheus %v")
-		r.recorder.Eventf(&prometheus, core.EventTypeWarning, "FailedInitializePrometheus", "error initializing prometheus, %v", err)
+		r.recorder.Eventf(&prometheus, core.EventTypeWarning, "FailedInitializingPrometheus", "error initializing prometheus, %v", err)
 	}
 
 	return ctrl.Result{}, nil
 }
 
-// ensurePrometheus ensures Prometheus(Statefulset, Service, ConfigMap) exists
+// ensurePrometheus ensures Prometheus(Statefulset, Service, ConfigMap)
 func (r *PrometheusReconciler) ensurePrometheus(ctx context.Context, p *monitoringv1alpha1.Prometheus) error {
 
-	err := r.reconcileStatefulSet(ctx, p)
+	err := r.reconcileRbac(ctx, p)
+	if err != nil {
+		return fmt.Errorf("unable to reconcile RBAC: %v", err)
+	}
+
+	err = r.reconcileStatefulSet(ctx, p)
 	if err != nil {
 		return fmt.Errorf("unable to reconcile StatefulSet: %v", err)
 	}
@@ -100,11 +109,53 @@ func (r *PrometheusReconciler) ensurePrometheus(ctx context.Context, p *monitori
 		return fmt.Errorf("unable to reconcile Service: %v", err)
 	}
 
-	err = r.reconcileConfigMap(ctx, p)
+	err = r.reconcileConfigMaps(ctx, p)
 	if err != nil {
 		return fmt.Errorf("unable to reconcile ConfigMap: %v", err)
 	}
 
+	return nil
+}
+
+func (r *PrometheusReconciler) reconcileRbac(ctx context.Context, p *monitoringv1alpha1.Prometheus) error {
+	log := crlog.FromContext(ctx)
+
+	// ServiceAccount
+	desiredSa := desiredServiceAccount(p)
+	if err := ctrl.SetControllerReference(p, &desiredSa, r.Scheme); err != nil {
+		return err
+	}
+	err := r.Create(ctx, &desiredSa)
+	if err != nil && errors.IsAlreadyExists(err) {
+		log.Info("ServiceAccount already exists!")
+	} else if err != nil {
+		return fmt.Errorf("unable to create ServiceAccount: %v", err)
+	}
+
+	// Clusterrole
+	cr := desiredClusterRole(p)
+	if err := ctrl.SetControllerReference(p, &cr, r.Scheme); err != nil {
+		return err
+	}
+	err = r.Create(ctx, &cr)
+	if err != nil && errors.IsAlreadyExists(err) {
+		log.Info("Clusterrole already exists!")
+	} else if err != nil {
+		return fmt.Errorf("unable to create Clusterrole: %v", err)
+	}
+
+	// ClusterRoleBinding
+	crb := desiredClusterRoleBinding(p)
+	if err := ctrl.SetControllerReference(p, &crb, r.Scheme); err != nil {
+		return err
+	}
+	err = r.Create(ctx, &crb)
+	if err != nil && errors.IsAlreadyExists(err) {
+		log.Info("ClusterRoleBinding already exists!")
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("unable to create ClusterRoleBinding: %v", err)
+	}
 	return nil
 }
 
@@ -130,21 +181,20 @@ func (r *PrometheusReconciler) reconcileStatefulSet(ctx context.Context, p *moni
 		}
 		return err
 	} else {
+		// Update Prometheus Status
+		p.Status.ReadyReplicas = sts.Status.ReadyReplicas
+		err := r.Status().Update(ctx, p)
+		if err != nil {
+			return err
+		}
 
 		desiredSts := desiredStatefulSet(p)
-		// Update Prometheus Status
-		// TODO: readyReplicas
-		if p.Status.ReadyReplicas != sts.Status.ReadyReplicas {
-			p.Status.ReadyReplicas = sts.Status.ReadyReplicas
-			err := r.Status().Update(ctx, p)
-			if err != nil {
-				return err
-			}
-		}
 		// Check Diff & Update StatefulSet
 		if !cmp.Equal(sts.Spec, desiredSts.Spec) {
 			log.Info("Update Prometheus StatefulSet")
-
+			if err := ctrl.SetControllerReference(p, &desiredSts, r.Scheme); err != nil {
+				return err
+			}
 			return r.Update(ctx, &desiredSts)
 		}
 
@@ -153,44 +203,27 @@ func (r *PrometheusReconciler) reconcileStatefulSet(ctx context.Context, p *moni
 }
 
 func (r *PrometheusReconciler) reconcileService(ctx context.Context, p *monitoringv1alpha1.Prometheus) error {
+	log := crlog.FromContext(ctx)
 
-	// Retrieve Service
-	var svc core.Service
-	nn := ctrltypes.NamespacedName{Namespace: p.ObjectMeta.Namespace, Name: p.ObjectMeta.Name}
-	if err := r.Get(ctx, nn, &svc); err != nil {
-		desiredSvc := desiredService(p)
-		if apierrors.IsNotFound(err) {
-			// Create StatefulSet
-			if err := ctrl.SetControllerReference(p, &desiredSvc, r.Scheme); err != nil {
-				return err
-			}
-			if err := r.Create(ctx, &desiredSvc); err != nil {
-				return err
-			} else if err == nil {
-				r.recorder.Eventf(p, core.EventTypeNormal, "PrometheusServiceCreated", "Service %v is created", p.Name)
-			}
-		}
+	desiredSvc := desiredService(p)
+	if err := ctrl.SetControllerReference(p, &desiredSvc, r.Scheme); err != nil {
 		return err
-	} else {
-		desiredSvc := desiredService(p)
-		// Check Diff & Update Service
-		if !cmp.Equal(svc.Spec, desiredSvc.Spec) {
-			//TODO: Ignore:::
-			//return r.Update(ctx, &desiredSvc)
-			return nil
-		}
 	}
-	return nil
+	err := r.Create(ctx, &desiredSvc)
+	if err != nil && errors.IsAlreadyExists(err) {
+		log.Info("desired Service already exists!")
+		return nil
+	}
+	return err
 }
 
-func (r *PrometheusReconciler) reconcileConfigMap(ctx context.Context, p *monitoringv1alpha1.Prometheus) error {
+func (r *PrometheusReconciler) reconcileConfigMaps(ctx context.Context, p *monitoringv1alpha1.Prometheus) error {
 	log := crlog.FromContext(ctx)
 
 	// reconcile Prometheus ConfigMap
 	var cm core.ConfigMap
 	nn := ctrltypes.NamespacedName{Namespace: p.ObjectMeta.Namespace, Name: p.ObjectMeta.Name + prometheusConfigMapSuffix}
 	if err := r.Get(ctx, nn, &cm); err != nil {
-		log.Info("unable to get ConfigMap")
 		if apierrors.IsNotFound(err) {
 			desiredCm, err := desiredPrometheusConfigMap(p)
 			if err != nil {
@@ -203,7 +236,8 @@ func (r *PrometheusReconciler) reconcileConfigMap(ctx context.Context, p *monito
 			if err := r.Create(ctx, &desiredCm); err != nil {
 				return err
 			} else if err == nil {
-				r.recorder.Eventf(p, core.EventTypeNormal, "PrometheusConfigCreated", "ConfigMap %v is created", p.Name)
+				log.Info(fmt.Sprintf("ConfigMap %v is created", p.Name+prometheusConfigMapSuffix))
+				r.recorder.Eventf(p, core.EventTypeNormal, "PrometheusConfigCreated", "ConfigMap %v is created", p.Name+prometheusConfigMapSuffix)
 			}
 		} else {
 			return err
@@ -215,6 +249,10 @@ func (r *PrometheusReconciler) reconcileConfigMap(ctx context.Context, p *monito
 		}
 		// Check Diff & Update
 		if !cmp.Equal(cm.Data, desiredCm.Data) {
+			log.Info("Update Prometheus config ConfigMap")
+			if err := ctrl.SetControllerReference(p, &desiredCm, r.Scheme); err != nil {
+				return err
+			}
 			return r.Update(ctx, &desiredCm)
 		}
 	}
@@ -224,7 +262,6 @@ func (r *PrometheusReconciler) reconcileConfigMap(ctx context.Context, p *monito
 	var tcm core.ConfigMap
 	nncm := ctrltypes.NamespacedName{Namespace: p.ObjectMeta.Namespace, Name: tcmName}
 	if err := r.Get(ctx, nncm, &tcm); err != nil {
-		log.Info("unable to get Targets ConfigMap")
 		if apierrors.IsNotFound(err) {
 			desiredCm, err := desiredTargetsConfigMap(p)
 			if err != nil {
@@ -237,6 +274,7 @@ func (r *PrometheusReconciler) reconcileConfigMap(ctx context.Context, p *monito
 			if err := r.Create(ctx, &desiredCm); err != nil {
 				return err
 			} else if err == nil {
+				log.Info(fmt.Sprintf("ConfigMap %v is created", tcmName))
 				r.recorder.Eventf(p, core.EventTypeNormal, "TargetsConfigCreated", "ConfigMap %v is created", tcmName)
 			}
 		}
@@ -249,6 +287,9 @@ func (r *PrometheusReconciler) reconcileConfigMap(ctx context.Context, p *monito
 		// Check Diff & Update
 		if !cmp.Equal(tcm.Data, desiredCm.Data) {
 			log.Info("Update targets ConfigMap")
+			if err := ctrl.SetControllerReference(p, &desiredCm, r.Scheme); err != nil {
+				return err
+			}
 			return r.Update(ctx, &desiredCm)
 		}
 	}

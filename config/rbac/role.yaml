@@ -5,8 +5,15 @@ metadata:
   creationTimestamp: null
   name: manager-role
 rules:
-- resources:
-  - configmaps
+- nonResourceURLs:
+  - /metrics
+  - /metrics/cadvisor
+  verbs:
+  - get
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
   verbs:
   - create
   - delete
@@ -15,17 +22,26 @@ rules:
   - patch
   - update
   - watch
-- resources:
-  - configmaps/finalizers
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets/finalizers
   verbs:
   - update
-- resources:
-  - configmaps/status
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets/status
   verbs:
   - get
   - patch
   - update
-- resources:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - events
+  - serviceaccounts
   - services
   verbs:
   - create
@@ -35,42 +51,34 @@ rules:
   - patch
   - update
   - watch
-- resources:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps/finalizers
+  - serviceaccounts/finalizers
   - services/finalizers
   verbs:
   - update
-- resources:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps/status
   - services/status
   verbs:
   - get
   - patch
   - update
 - apiGroups:
-  - apps
+  - ""
   resources:
-  - StatefulSet/finalizers
+  - endpoints
+  - nodes
+  - nodes/metrics
+  - pods
   verbs:
-  - update
-- apiGroups:
-  - apps
-  resources:
-  - StatefulSets
-  verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - apps
-  resources:
-  - StatefulSets/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - monitoring.giantswarm.io
   resources:
@@ -93,6 +101,35 @@ rules:
   - monitoring.giantswarm.io
   resources:
   - prometheuses/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterrolebindings
+  - clusterroles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterrolebindings/finalizers
+  - clusterroles/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterrolebindings/status
+  - clusterroles/status
   verbs:
   - get
   - patch

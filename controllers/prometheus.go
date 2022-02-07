@@ -7,6 +7,7 @@ import (
 	"gopkg.in/yaml.v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -24,9 +25,9 @@ const (
 	`
 )
 
-func labels() map[string]string {
+func labels(name string) map[string]string {
 	return map[string]string{
-		"app.kubernetes.io/name":      "gs-prometheus",
+		"app.kubernetes.io/name":      name,
 		"app.kubernetes.io/component": "prometheus",
 	}
 }
@@ -149,11 +150,57 @@ func volumes(n string) []corev1.Volume {
 
 // }
 
+func desiredServiceAccount(p *monitoringv1alpha1.Prometheus) corev1.ServiceAccount {
+	return corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels(p.Name)},
+	}
+}
+
+func desiredClusterRole(p *monitoringv1alpha1.Prometheus) rbacv1.ClusterRole {
+	return rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels(p.Name)},
+		Rules: []rbacv1.PolicyRule{
+			rbacv1.PolicyRule{
+				APIGroups: []string{""},
+				Resources: []string{"nodes", "nodes/metrics", "services", "endpoints", "pods"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			rbacv1.PolicyRule{
+				APIGroups: []string{""},
+				Resources: []string{"configmaps"},
+				Verbs:     []string{"get"},
+			},
+			rbacv1.PolicyRule{
+				NonResourceURLs: []string{"/metrics", "/metrics/cadvisor"},
+				Verbs:           []string{"get"},
+			},
+		},
+	}
+}
+
+func desiredClusterRoleBinding(p *monitoringv1alpha1.Prometheus) rbacv1.ClusterRoleBinding {
+	return rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels(p.Name)},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     p.Name,
+		},
+		Subjects: []rbacv1.Subject{
+			rbacv1.Subject{
+				Kind:      "ServiceAccount",
+				Name:      p.Name,
+				Namespace: p.Namespace,
+			},
+		},
+	}
+}
+
 func volumeClaimTemplate(p *monitoringv1alpha1.Prometheus) corev1.PersistentVolumeClaim {
 	if p.Spec.VolumeClaimTemplate.ObjectMeta.Name == "" {
 		p.Spec.VolumeClaimTemplate.ObjectMeta = metav1.ObjectMeta{
 			Name:   p.Name,
-			Labels: labels(),
+			Labels: labels(p.Name),
 		}
 	}
 	return p.Spec.VolumeClaimTemplate
@@ -161,20 +208,22 @@ func volumeClaimTemplate(p *monitoringv1alpha1.Prometheus) corev1.PersistentVolu
 
 func desiredStatefulSet(p *monitoringv1alpha1.Prometheus) appsv1.StatefulSet {
 	return appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels()},
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels(p.Name)},
 		Spec: appsv1.StatefulSetSpec{
+			ServiceName:         p.Name,
 			Replicas:            &p.Spec.Replicas,
 			UpdateStrategy:      appsv1.StatefulSetUpdateStrategy{Type: appsv1.RollingUpdateStatefulSetStrategyType},
 			PodManagementPolicy: appsv1.ParallelPodManagement,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labels(),
+				MatchLabels: labels(p.Name),
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{volumeClaimTemplate(p)},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels(),
+					Labels: labels(p.Name),
 				},
 				Spec: corev1.PodSpec{
+					ServiceAccountName: p.Name,
 					Containers: []corev1.Container{
 						sidecarContainer(),
 						prometheusContainer(p),
@@ -189,7 +238,7 @@ func desiredStatefulSet(p *monitoringv1alpha1.Prometheus) appsv1.StatefulSet {
 
 func desiredService(p *monitoringv1alpha1.Prometheus) corev1.Service {
 	return corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels()},
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels(p.Name)},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
 				corev1.ServicePort{
@@ -200,7 +249,7 @@ func desiredService(p *monitoringv1alpha1.Prometheus) corev1.Service {
 				},
 			},
 			SessionAffinity: corev1.ServiceAffinityClientIP,
-			Selector:        labels(),
+			Selector:        labels(p.Name),
 		},
 	}
 }
@@ -208,18 +257,7 @@ func desiredService(p *monitoringv1alpha1.Prometheus) corev1.Service {
 func desiredPrometheusConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.ConfigMap, error) {
 
 	cfg := PrometheusConfigFile{
-		ScrapeConfigs: []PrometheusScrapeConfig{
-			PrometheusScrapeConfig{
-				JobName: "gs",
-				FileSdConfigs: []PrometheusFileSdConfig{
-					PrometheusFileSdConfig{
-						Files: []string{
-							"/etc/targets/targets.yaml",
-						},
-					},
-				},
-			},
-		},
+		ScrapeConfigs: getPrometheusScrapeConfig(p.Spec.AdditionalScrapeConfig),
 	}
 
 	yamlData, err := yaml.Marshal(&cfg)
@@ -229,7 +267,7 @@ func desiredPrometheusConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.Config
 	}
 
 	return corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: p.Name + prometheusConfigMapSuffix, Namespace: p.Namespace, Labels: labels()},
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name + prometheusConfigMapSuffix, Namespace: p.Namespace, Labels: labels(p.Name)},
 		Data: map[string]string{
 			"prometheus.yml": string(yamlData),
 		},
@@ -238,16 +276,16 @@ func desiredPrometheusConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.Config
 
 func desiredTargetsConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.ConfigMap, error) {
 
-	jsonStr, err := yaml.Marshal(p.Spec.Targets)
+	str, err := yaml.Marshal(p.Spec.Targets)
 	if err != nil {
 		return corev1.ConfigMap{}, fmt.Errorf("unable to Marshal 'targets', %v", err)
 	}
 	data := map[string]string{
-		"targets.yaml": string(jsonStr),
+		"targets.yaml": string(str),
 	}
 
 	return corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: p.Name + prometheusConfigMapTargetsSuffix, Namespace: p.Namespace, Labels: labels()},
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name + prometheusConfigMapTargetsSuffix, Namespace: p.Namespace, Labels: labels(p.Name)},
 		Data:       data,
 	}, nil
 }

@@ -41,6 +41,10 @@ type PrometheusSpec struct {
 	// Targets Prometheus scraping targets
 	// +optional
 	Targets []PrometheusTarget `json:"targets,omitempty"`
+
+	// AdditionalScrapeConfigs Prometheus scraping configs
+	// +optional
+	AdditionalScrapeConfig []ScrapeConfig `json:"additionalScrapeConfigs,omitempty"`
 }
 
 type ImageSpec struct {
@@ -58,6 +62,29 @@ type PrometheusTarget struct {
 	Targets []string `json:"targets,omitempty"`
 
 	Labels map[string]string `json:"labels,omitempty"`
+}
+
+// ScrapeConfig
+type ScrapeConfig struct {
+	JobName string `json:"jobName,omitempty"`
+
+	// +optional
+	Scheme string `json:"scheme,omitempty"`
+	// +optional
+	TlsConfig TLSConfig `json:"tlsConfig,omitempty"`
+	// +optional
+	BearerTokenFile string `json:"bearerTokenFile,omitempty"`
+
+	StaticConfigs []StaticConfig `json:"staticConfigs,omitempty"`
+}
+
+type StaticConfig struct {
+	Targets []string `json:"targets"`
+}
+
+type TLSConfig struct {
+	// +kubebuilder:default=true
+	InsecureSkipVerify bool `json:"insecureSkipVerify"`
 }
 
 // PrometheusStatus defines the observed state of Prometheus

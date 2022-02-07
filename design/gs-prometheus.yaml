@@ -25,7 +25,15 @@ spec:
       storageClassName: standard
   targets:
   - targets:
-    - gs-prometheus-operator:8080
+    - localhost:9090
     labels:
-      app: gs-prometheus-operator
-      job: gs-prometheus
+      app: prometheus
+      job: prometheus
+  additionalScrapeConfigs:
+  - job_name: operator
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    static_configs:
+      - targets: ['gs-prometheus-operator-controller-manager-metrics-service.gs-prometheus-operator-system:8443']
