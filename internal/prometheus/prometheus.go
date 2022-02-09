@@ -14,15 +14,8 @@ import (
 
 const (
 	prometheusPort                   = 9090
-	prometheusConfigMapTargetsSuffix = "-targets"
-	prometheusConfigMapSuffix        = "-config"
-	prometheusConfig                 = `
-		scrape_configs:
-		 - job_name: 'gs'
-		   file_sd_configs:
-			 - files:
-			    - /etc/targets/targets.yaml
-	`
+	PrometheusConfigMapTargetsSuffix = "-targets"
+	PrometheusConfigMapSuffix        = "-config"
 )
 
 func labels(name string) map[string]string {
@@ -112,7 +105,7 @@ func volumes(n string) []corev1.Volume {
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: n + prometheusConfigMapSuffix,
+						Name: n + PrometheusConfigMapSuffix,
 					},
 				},
 			},
@@ -122,7 +115,7 @@ func volumes(n string) []corev1.Volume {
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: n + prometheusConfigMapTargetsSuffix,
+						Name: n + PrometheusConfigMapTargetsSuffix,
 					},
 				},
 			},
@@ -150,13 +143,13 @@ func volumes(n string) []corev1.Volume {
 
 // }
 
-func desiredServiceAccount(p *monitoringv1alpha1.Prometheus) corev1.ServiceAccount {
+func DesiredServiceAccount(p *monitoringv1alpha1.Prometheus) corev1.ServiceAccount {
 	return corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels(p.Name)},
 	}
 }
 
-func desiredClusterRole(p *monitoringv1alpha1.Prometheus) rbacv1.ClusterRole {
+func DesiredClusterRole(p *monitoringv1alpha1.Prometheus) rbacv1.ClusterRole {
 	return rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels(p.Name)},
 		Rules: []rbacv1.PolicyRule{
@@ -178,7 +171,7 @@ func desiredClusterRole(p *monitoringv1alpha1.Prometheus) rbacv1.ClusterRole {
 	}
 }
 
-func desiredClusterRoleBinding(p *monitoringv1alpha1.Prometheus) rbacv1.ClusterRoleBinding {
+func DesiredClusterRoleBinding(p *monitoringv1alpha1.Prometheus) rbacv1.ClusterRoleBinding {
 	return rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels(p.Name)},
 		RoleRef: rbacv1.RoleRef{
@@ -206,7 +199,7 @@ func volumeClaimTemplate(p *monitoringv1alpha1.Prometheus) corev1.PersistentVolu
 	return p.Spec.VolumeClaimTemplate
 }
 
-func desiredStatefulSet(p *monitoringv1alpha1.Prometheus) appsv1.StatefulSet {
+func DesiredStatefulSet(p *monitoringv1alpha1.Prometheus) appsv1.StatefulSet {
 	return appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels(p.Name)},
 		Spec: appsv1.StatefulSetSpec{
@@ -236,7 +229,7 @@ func desiredStatefulSet(p *monitoringv1alpha1.Prometheus) appsv1.StatefulSet {
 	}
 }
 
-func desiredService(p *monitoringv1alpha1.Prometheus) corev1.Service {
+func DesiredService(p *monitoringv1alpha1.Prometheus) corev1.Service {
 	return corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: labels(p.Name)},
 		Spec: corev1.ServiceSpec{
@@ -254,7 +247,7 @@ func desiredService(p *monitoringv1alpha1.Prometheus) corev1.Service {
 	}
 }
 
-func desiredPrometheusConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.ConfigMap, error) {
+func DesiredPrometheusConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.ConfigMap, error) {
 
 	cfg := PrometheusConfigFile{
 		ScrapeConfigs: getPrometheusScrapeConfig(p.Spec.AdditionalScrapeConfig),
@@ -267,14 +260,14 @@ func desiredPrometheusConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.Config
 	}
 
 	return corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: p.Name + prometheusConfigMapSuffix, Namespace: p.Namespace, Labels: labels(p.Name)},
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name + PrometheusConfigMapSuffix, Namespace: p.Namespace, Labels: labels(p.Name)},
 		Data: map[string]string{
 			"prometheus.yml": string(yamlData),
 		},
 	}, nil
 }
 
-func desiredTargetsConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.ConfigMap, error) {
+func DesiredTargetsConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.ConfigMap, error) {
 
 	str, err := yaml.Marshal(p.Spec.Targets)
 	if err != nil {
@@ -285,7 +278,7 @@ func desiredTargetsConfigMap(p *monitoringv1alpha1.Prometheus) (corev1.ConfigMap
 	}
 
 	return corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: p.Name + prometheusConfigMapTargetsSuffix, Namespace: p.Namespace, Labels: labels(p.Name)},
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name + PrometheusConfigMapTargetsSuffix, Namespace: p.Namespace, Labels: labels(p.Name)},
 		Data:       data,
 	}, nil
 }

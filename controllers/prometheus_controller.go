@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/google/go-cmp/cmp"
+	prometheus "github.com/mcbenjemaa/gs-prometheus-operator/internal/prometheus"
 	appsv1 "k8s.io/api/apps/v1"
 	core "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -65,10 +66,6 @@ type PrometheusReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Prometheus object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
@@ -122,7 +119,7 @@ func (r *PrometheusReconciler) reconcileRbac(ctx context.Context, p *monitoringv
 	log := crlog.FromContext(ctx)
 
 	// ServiceAccount
-	desiredSa := desiredServiceAccount(p)
+	desiredSa := prometheus.DesiredServiceAccount(p)
 	if err := ctrl.SetControllerReference(p, &desiredSa, r.Scheme); err != nil {
 		return err
 	}
@@ -134,7 +131,7 @@ func (r *PrometheusReconciler) reconcileRbac(ctx context.Context, p *monitoringv
 	}
 
 	// Clusterrole
-	cr := desiredClusterRole(p)
+	cr := prometheus.DesiredClusterRole(p)
 	if err := ctrl.SetControllerReference(p, &cr, r.Scheme); err != nil {
 		return err
 	}
@@ -146,7 +143,7 @@ func (r *PrometheusReconciler) reconcileRbac(ctx context.Context, p *monitoringv
 	}
 
 	// ClusterRoleBinding
-	crb := desiredClusterRoleBinding(p)
+	crb := prometheus.DesiredClusterRoleBinding(p)
 	if err := ctrl.SetControllerReference(p, &crb, r.Scheme); err != nil {
 		return err
 	}
@@ -168,7 +165,7 @@ func (r *PrometheusReconciler) reconcileStatefulSet(ctx context.Context, p *moni
 	nn := ctrltypes.NamespacedName{Namespace: p.ObjectMeta.Namespace, Name: p.ObjectMeta.Name}
 	if err := r.Get(ctx, nn, &sts); err != nil {
 		log.Info("unable to get StatefulSet")
-		desiredSts := desiredStatefulSet(p)
+		desiredSts := prometheus.DesiredStatefulSet(p)
 		if apierrors.IsNotFound(err) {
 			// Create StatefulSet
 			if err := ctrl.SetControllerReference(p, &desiredSts, r.Scheme); err != nil {
@@ -189,7 +186,7 @@ func (r *PrometheusReconciler) reconcileStatefulSet(ctx context.Context, p *moni
 			return err
 		}
 
-		desiredSts := desiredStatefulSet(p)
+		desiredSts := prometheus.DesiredStatefulSet(p)
 		// Check Diff & Update StatefulSet
 		if !cmp.Equal(sts.Spec, desiredSts.Spec) {
 			log.Info("Update Prometheus StatefulSet")
@@ -206,7 +203,7 @@ func (r *PrometheusReconciler) reconcileStatefulSet(ctx context.Context, p *moni
 func (r *PrometheusReconciler) reconcileService(ctx context.Context, p *monitoringv1alpha1.Prometheus) error {
 	log := crlog.FromContext(ctx)
 
-	desiredSvc := desiredService(p)
+	desiredSvc := prometheus.DesiredService(p)
 	if err := ctrl.SetControllerReference(p, &desiredSvc, r.Scheme); err != nil {
 		return err
 	}
@@ -223,10 +220,10 @@ func (r *PrometheusReconciler) reconcileConfigMaps(ctx context.Context, p *monit
 
 	// reconcile Prometheus ConfigMap
 	var cm core.ConfigMap
-	nn := ctrltypes.NamespacedName{Namespace: p.ObjectMeta.Namespace, Name: p.ObjectMeta.Name + prometheusConfigMapSuffix}
+	nn := ctrltypes.NamespacedName{Namespace: p.ObjectMeta.Namespace, Name: p.ObjectMeta.Name + prometheus.PrometheusConfigMapSuffix}
 	if err := r.Get(ctx, nn, &cm); err != nil {
 		if apierrors.IsNotFound(err) {
-			desiredCm, err := desiredPrometheusConfigMap(p)
+			desiredCm, err := prometheus.DesiredPrometheusConfigMap(p)
 			if err != nil {
 				return err
 			}
@@ -237,14 +234,14 @@ func (r *PrometheusReconciler) reconcileConfigMaps(ctx context.Context, p *monit
 			if err := r.Create(ctx, &desiredCm); err != nil {
 				return err
 			} else if err == nil {
-				log.Info(fmt.Sprintf("ConfigMap %v is created", p.Name+prometheusConfigMapSuffix))
-				r.recorder.Eventf(p, core.EventTypeNormal, "PrometheusConfigCreated", "ConfigMap %v is created", p.Name+prometheusConfigMapSuffix)
+				log.Info(fmt.Sprintf("ConfigMap %v is created", p.Name+prometheus.PrometheusConfigMapSuffix))
+				r.recorder.Eventf(p, core.EventTypeNormal, "PrometheusConfigCreated", "ConfigMap %v is created", p.Name+prometheus.PrometheusConfigMapSuffix)
 			}
 		} else {
 			return err
 		}
 	} else {
-		desiredCm, err := desiredPrometheusConfigMap(p)
+		desiredCm, err := prometheus.DesiredPrometheusConfigMap(p)
 		if err != nil {
 			return err
 		}
@@ -259,12 +256,12 @@ func (r *PrometheusReconciler) reconcileConfigMaps(ctx context.Context, p *monit
 	}
 
 	// reconcile targets ConfigMap
-	tcmName := p.ObjectMeta.Name + prometheusConfigMapTargetsSuffix
+	tcmName := p.ObjectMeta.Name + prometheus.PrometheusConfigMapTargetsSuffix
 	var tcm core.ConfigMap
 	nncm := ctrltypes.NamespacedName{Namespace: p.ObjectMeta.Namespace, Name: tcmName}
 	if err := r.Get(ctx, nncm, &tcm); err != nil {
 		if apierrors.IsNotFound(err) {
-			desiredCm, err := desiredTargetsConfigMap(p)
+			desiredCm, err := prometheus.DesiredTargetsConfigMap(p)
 			if err != nil {
 				return err
 			}
@@ -281,7 +278,7 @@ func (r *PrometheusReconciler) reconcileConfigMaps(ctx context.Context, p *monit
 		}
 		return err
 	} else {
-		desiredCm, err := desiredTargetsConfigMap(p)
+		desiredCm, err := prometheus.DesiredTargetsConfigMap(p)
 		if err != nil {
 			return err
 		}
