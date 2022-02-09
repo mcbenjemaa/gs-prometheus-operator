@@ -20,7 +20,7 @@ spec:
       jsonPath: .status.readyReplicas
       name: Ready
       type: integer
-    - description: Time duration since creation of MachineSet
+    - description: Time duration since creation of Prometheus
       jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -74,6 +74,9 @@ spec:
                       required:
                       - insecureSkipVerify
                       type: object
+                  required:
+                  - jobName
+                  - staticConfigs
                   type: object
                 type: array
               image:

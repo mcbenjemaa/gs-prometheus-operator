@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	appsv1 "k8s.io/api/apps/v1"
 	core "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -304,6 +305,9 @@ func (r *PrometheusReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&monitoringv1alpha1.Prometheus{}).
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&core.Service{}).
+		Owns(&core.ServiceAccount{}).
+		Owns(&rbacv1.ClusterRole{}).
+		Owns(&rbacv1.ClusterRoleBinding{}).
 		Owns(&core.ConfigMap{}).
 		Complete(r)
 }

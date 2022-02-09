@@ -5,7 +5,7 @@ metadata:
 spec:
   image: 
     repository: prom/prometheus
-    version: v2.30.1
+    version: v2.24.1
   replicas: 1
   resources:
     limits:
@@ -33,11 +33,6 @@ spec:
   #   labels:
   #     app: cert-manager
   #     job: cert-manager
-  # - targets:
-  #   - gs-prometheus-operator-controller-manager-metrics-service.gs-prometheus-operator-system:8443
-  #   labels:
-  #     app: gs-prometheus-operator
-  #     job: gs-prometheus
   additionalScrapeConfigs:
   - jobName: operator
     scheme: https

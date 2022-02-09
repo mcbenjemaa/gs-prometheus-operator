@@ -66,7 +66,7 @@ type PrometheusTarget struct {
 
 // ScrapeConfig
 type ScrapeConfig struct {
-	JobName string `json:"jobName,omitempty"`
+	JobName string `json:"jobName"`
 
 	// +optional
 	Scheme string `json:"scheme,omitempty"`
@@ -75,7 +75,7 @@ type ScrapeConfig struct {
 	// +optional
 	BearerTokenFile string `json:"bearerTokenFile,omitempty"`
 
-	StaticConfigs []StaticConfig `json:"staticConfigs,omitempty"`
+	StaticConfigs []StaticConfig `json:"staticConfigs"`
 }
 
 type StaticConfig struct {
@@ -97,7 +97,7 @@ type PrometheusStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="Ready",type="integer",JSONPath=".status.readyReplicas",description="Total number of ready instances."
-// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of MachineSet"
+//+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="Time duration since creation of Prometheus"
 
 // Prometheus is the Schema for the prometheuses API
 type Prometheus struct {
