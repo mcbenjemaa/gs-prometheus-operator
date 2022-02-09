@@ -1,27 +1,26 @@
 apiVersion: monitoring.giantswarm.io/v1alpha1
 kind: Prometheus
 metadata:
-  name: prometheus
-  namespace: monitoring
+  name: prometheus-sample
 spec:
   image: 
     repository: prom/prometheus
-    version: v2.24.1
+    version: v2.30.1
   replicas: 1
   resources:
     limits:
       cpu: 500m
-      memory: 4Gi
+      memory: 2Gi
     requests:
       cpu: 100m
-      memory: 2Gi
+      memory: 1Gi
   volumeClaimTemplate:
     spec:
       accessModes:
       - ReadWriteOnce
       resources:
         requests:
-          storage: 100Gi
+          storage: 10Gi
       storageClassName: standard
   targets:
   - targets:
@@ -29,6 +28,16 @@ spec:
     labels:
       app: prometheus
       job: prometheus
+  # - targets:
+  #   - cert-manager.cert-manager:9402
+  #   labels:
+  #     app: cert-manager
+  #     job: cert-manager
+  # - targets:
+  #   - gs-prometheus-operator-controller-manager-metrics-service.gs-prometheus-operator-system:8443
+  #   labels:
+  #     app: gs-prometheus-operator
+  #     job: gs-prometheus
   additionalScrapeConfigs:
   - jobName: operator
     scheme: https
@@ -36,5 +45,5 @@ spec:
       insecureSkipVerify: true
     bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
     staticConfigs:
-      - targets:
-        - "gs-prometheus-operator:8443"
+    - targets: 
+      - "gs-prometheus-operator-controller-manager-metrics-service.gs-prometheus-operator-system:8443"
