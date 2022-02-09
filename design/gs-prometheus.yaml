@@ -30,10 +30,11 @@ spec:
       app: prometheus
       job: prometheus
   additionalScrapeConfigs:
-  - job_name: operator
+  - jobName: operator
     scheme: https
-    tls_config:
-      insecure_skip_verify: true
-    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-    static_configs:
-      - targets: ['gs-prometheus-operator-controller-manager-metrics-service.gs-prometheus-operator-system:8443']
+    tlsConfig:
+      insecureSkipVerify: true
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    staticConfigs:
+      - targets:
+        - "gs-prometheus-operator:8443"
